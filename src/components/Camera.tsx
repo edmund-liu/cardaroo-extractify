@@ -19,13 +19,19 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     const setupCamera = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment" }, 
+          video: { 
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }, 
           audio: false 
         });
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          setCameraReady(true);
+          videoRef.current.onloadedmetadata = () => {
+            setCameraReady(true);
+          };
         }
       } catch (err) {
         console.error("Error accessing camera:", err);
@@ -47,6 +53,9 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
+      console.log("Capturing image...");
+      console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight);
+      
       // Set canvas dimensions to match the video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -57,9 +66,18 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
         // Convert to data URL and pass to handler
-        const imageData = canvas.toDataURL('image/jpeg');
+        const imageData = canvas.toDataURL('image/jpeg', 0.95);
+        console.log("Image captured, length:", imageData.length);
         onCapture(imageData);
+      } else {
+        console.error("Could not get canvas context");
       }
+    } else {
+      console.error("Cannot capture: video or canvas not ready", {
+        video: !!videoRef.current,
+        canvas: !!canvasRef.current,
+        cameraReady
+      });
     }
   };
 

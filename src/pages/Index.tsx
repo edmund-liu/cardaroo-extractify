@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { Camera, ScanText } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +6,7 @@ import Loader from "@/components/Loader";
 import Results from "@/components/Results";
 import { AppState, ContactInfo } from "@/types";
 import { extractTextFromImage } from "@/utils/textExtraction";
+import { toast } from "sonner";
 
 const Index = () => {
   const [appState, setAppState] = useState<AppState>(AppState.LANDING);
@@ -18,16 +18,28 @@ const Index = () => {
   };
 
   const handleCaptureImage = async (image: string) => {
+    console.log("Image captured in Index component");
     setCapturedImage(image);
     setAppState(AppState.PROCESSING);
     
     try {
+      toast.info("Processing business card...");
       const info = await extractTextFromImage(image);
+      
+      // Check if any fields were successfully extracted
+      const hasData = Object.values(info).some(val => val && val.trim() !== "");
+      
+      if (hasData) {
+        toast.success("Card processed successfully");
+      } else {
+        toast.warning("Could not detect text on the card. Try again with better lighting.");
+      }
+      
       setExtractedInfo(info);
       setAppState(AppState.RESULTS);
     } catch (error) {
       console.error("Error extracting text:", error);
-      // Handle error (would show toast in real app)
+      toast.error("Failed to process the card. Please try again.");
       setAppState(AppState.LANDING);
     }
   };
