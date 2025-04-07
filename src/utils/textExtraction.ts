@@ -1,219 +1,160 @@
-
 import { ContactInfo } from "@/types";
-import { toast } from "sonner";
 
-const AZURE_ENDPOINT = "https://isca-azdocumentintel.cognitiveservices.azure.com/";
-const AZURE_API_KEY = "9sXZGRdf7kVKWVDmC8Th0kkDJQZoR5dJqiPOWYNUwsRA7GasRn4OJQQJ99BCACqBBLyXJ3w3AAALACOGiAY0";
-const AZURE_MODEL_ID = "prebuilt-businessCard";
+// Interface for the combined data format
+interface CombinedContactInfo extends ContactInfo {
+  extractedText: string;
+  isMockData: boolean;
+}
 
-export const extractTextFromImage = async (imageBase64: string): Promise<ContactInfo> => {
-  console.log("Starting extraction process");
-  try {
-    // Remove the data URL prefix if present
-    const base64Data = imageBase64.includes(',') ? 
-      imageBase64.split(',')[1] : 
-      imageBase64;
-    
-    // Convert base64 to blob
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/jpeg' });
-    
-    const formData = new FormData();
-    formData.append('file', blob, 'businesscard.jpg');
-    
-    console.log("Calling Azure API...");
-    
-    // Call Azure Document Intelligence API
-    const response = await fetch(
-      `${AZURE_ENDPOINT}formrecognizer/documentModels/${AZURE_MODEL_ID}:analyze?api-version=2023-07-31`,
-      {
-        method: 'POST',
-        headers: {
-          'Ocp-Apim-Subscription-Key': AZURE_API_KEY,
-        },
-        body: formData,
-      }
-    );
-    
-    if (!response.ok) {
-      console.error(`Azure API error: ${response.status} ${response.statusText}`);
-      throw new Error(`Azure API error: ${response.status} ${response.statusText}`);
-    }
-    
-    // Get operation-location header for result polling
-    const operationLocation = response.headers.get('operation-location');
-    if (!operationLocation) {
-      console.error('Operation location header not found');
-      throw new Error('Operation location header not found');
-    }
-    
-    console.log("Polling for results from:", operationLocation);
-    
-    // Poll for results
-    const result = await pollForResults(operationLocation);
-    console.log("Extraction results received:", result);
-    
-    return parseAzureResponseToContactInfo(result);
-  } catch (error) {
-    console.error('Error extracting text from image:', error);
-    toast.error('Failed to extract text from business card');
-    
-    // Return empty contact info on failure
-    return {
-      name: '',
-      title: '',
-      company: '',
-      email: '',
-      phone: '',
-      website: '',
-      address: ''
-    };
-  }
-};
+/**
+ * Extracts text from image and returns both real data and mock data
+ */
+export const extractTextFromImage = async (
+  image: string
+): Promise<CombinedContactInfo> => {
+  // First, extract the real text from the image
+  const extractedText = await extractRealTextFromImage(image);
 
-const pollForResults = async (operationLocation: string): Promise<any> => {
-  let complete = false;
-  let result = null;
-  let pollAttempt = 0;
-  const maxPolls = 30;
-  
-  // Poll every 1 second until complete or max attempts reached
-  while (!complete && pollAttempt < maxPolls) {
-    pollAttempt++;
-    console.log(`Poll attempt ${pollAttempt}/${maxPolls}`);
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const response = await fetch(operationLocation, {
-      method: 'GET',
-      headers: {
-        'Ocp-Apim-Subscription-Key': AZURE_API_KEY,
-      },
-    });
-    
-    if (!response.ok) {
-      console.error(`Poll error: ${response.status} ${response.statusText}`);
-      throw new Error(`Poll error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log("Poll response status:", data.status);
-    
-    if (data.status === 'succeeded') {
-      complete = true;
-      result = data;
-    } else if (data.status === 'failed') {
-      throw new Error('Document analysis failed');
-    }
-  }
-  
-  if (!result) {
-    throw new Error('Polling timed out');
-  }
-  
-  return result;
-};
-
-const parseAzureResponseToContactInfo = (result: any): ContactInfo => {
-  console.log("Parsing Azure response");
-  try {
-    // Default empty contact info
-    const contactInfo: ContactInfo = {
-      name: '',
-      title: '',
-      company: '',
-      email: '',
-      phone: '',
-      website: '',
-      address: ''
-    };
-    
-    if (!result?.analyzeResult?.documents?.[0]?.fields) {
-      console.log("No fields found in result");
-      return contactInfo;
-    }
-    
-    const fields = result.analyzeResult.documents[0].fields;
-    console.log("Extracted fields:", Object.keys(fields));
-    
-    // Map Azure fields to our ContactInfo structure
-    if (fields.ContactNames?.values?.[0]?.valueObject?.value) {
-      contactInfo.name = fields.ContactNames.values[0].valueObject.value || '';
-    } else if (fields.ContactNames?.valueArray?.[0]?.valueString) {
-      contactInfo.name = fields.ContactNames.valueArray[0].valueString || '';
-    }
-    
-    if (fields.JobTitles?.values?.[0]?.valueString) {
-      contactInfo.title = fields.JobTitles.values[0].valueString || '';
-    } else if (fields.JobTitles?.valueArray?.[0]?.valueString) {
-      contactInfo.title = fields.JobTitles.valueArray[0].valueString || '';
-    }
-    
-    if (fields.CompanyNames?.values?.[0]?.valueString) {
-      contactInfo.company = fields.CompanyNames.values[0].valueString || '';
-    } else if (fields.CompanyNames?.valueArray?.[0]?.valueString) {
-      contactInfo.company = fields.CompanyNames.valueArray[0].valueString || '';
-    }
-    
-    if (fields.Emails?.values?.[0]?.valueString) {
-      contactInfo.email = fields.Emails.values[0].valueString || '';
-    } else if (fields.Emails?.valueArray?.[0]?.valueString) {
-      contactInfo.email = fields.Emails.valueArray[0].valueString || '';
-    }
-    
-    if (fields.PhoneNumbers?.values?.[0]?.valueObject?.value) {
-      contactInfo.phone = fields.PhoneNumbers.values[0].valueObject.value || '';
-    } else if (fields.PhoneNumbers?.valueArray?.[0]?.content) {
-      contactInfo.phone = fields.PhoneNumbers.valueArray[0].content || '';
-    }
-    
-    if (fields.Websites?.values?.[0]?.valueString) {
-      contactInfo.website = fields.Websites.values[0].valueString || '';
-    } else if (fields.Websites?.valueArray?.[0]?.valueString) {
-      contactInfo.website = fields.Websites.valueArray[0].valueString || '';
-    }
-    
-    if (fields.Addresses?.values?.[0]?.valueObject?.value) {
-      contactInfo.address = fields.Addresses.values[0].valueObject.value || '';
-    } else if (fields.Addresses?.valueArray?.[0]?.content) {
-      contactInfo.address = fields.Addresses.valueArray[0].content || '';
-    }
-    
-    console.log("Parsed contact info:", contactInfo);
-    return contactInfo;
-  } catch (error) {
-    console.error('Error parsing Azure response:', error);
-    toast.error('Error processing business card data');
-    
-    // Return default empty contact info on parsing error
-    return {
-      name: '',
-      title: '',
-      company: '',
-      email: '',
-      phone: '',
-      website: '',
-      address: ''
-    };
-  }
-};
-
-// Keep this function for compatibility with the rest of the app
-export const parseTextToContactInfo = (text: string): ContactInfo => {
-  // This function is no longer needed with Azure OCR, 
-  // but kept for API compatibility
+  // Convert JSON string to JavaScript object
+  const dataObject = JSON.parse(extractedText);
+  // Create the combined result with both real and mock data
   return {
-    name: "",
-    title: "",
-    company: "",
-    email: "",
-    phone: "",
-    website: "",
-    address: ""
+    extractedText,
+    isMockData: false,
+    name: dataObject.name,
+    title: dataObject.company,
+    email: dataObject.email,
+    phone: dataObject.phone,
+    website: dataObject.website,
+    address: dataObject.address,
+  }
+}
+
+/**
+ * Extracts only real text from the image
+ */
+async function extractRealTextFromImage(image: string): Promise<string> {
+  try {
+    // Try to parse the input as JSON
+    let result: any;
+
+    try {
+      if (typeof image === "string") {
+        if (image.startsWith("{")) {
+          // It's a JSON string
+          result = JSON.parse(image);
+        } else if (image.includes("analyzeResult")) {
+          // It might be a stringified object inside a string
+          const jsonStart = image.indexOf("{");
+          const jsonEnd = image.lastIndexOf("}") + 1;
+          if (jsonStart >= 0 && jsonEnd > 0) {
+            const jsonString = image.substring(jsonStart, jsonEnd);
+            result = JSON.parse(jsonString);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error parsing JSON:", error);
+    }
+
+    // If we have a valid result object from OCR
+    if (result) {
+      // For simple text-only format where the OCR result directly includes text field
+      if (result.text) {
+        // Regular expressions for matching
+        const emailRegex = /\b\S+@\S+\.\S+\b/; // Regex to match email addresses
+        const phoneRegex =
+          /(?:\+?\d{1,3}[- ]?)?(?:\(?\d{1,4}?\)?[- ]?)?\d{1,4}[- ]?\d{1,4}[- ]?\d{1,4}/; // Regex to match phone numbers
+        const urlRegex =
+          /(?<!@)\b(?:https?:\/\/|www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}\b/; // Regex to match URLs, ensuring they don't contain @
+
+        // Split the text into lines
+        const lines = result.text.split("\n");
+
+        // Initialize variables
+        let name = "";
+        let company = "";
+        let phone = "";
+        let email = "";
+        let address = "";
+        let website = "";
+
+        // Process each line
+        lines.forEach((line) => {
+          line = line.trim();
+          if (emailRegex.test(line) && !email) {
+            email = line; // Capture the first valid email
+          } else if (urlRegex.test(line) && !website) {
+            website = line; // Capture the first valid URL as the website
+          } else if (phoneRegex.test(line) && !phone) {
+            phone = line; // If it matches phone pattern and phone is not already set
+          } else if (!name) {
+            name = line; // First valid line is considered name
+          } else if (!company) {
+            company = line; // Capture the first line after name as company
+          } else if (line.length > 0) {
+            address += (address ? ", " : "") + line; // Remaining valid lines are considered address
+          }
+        });
+
+        // Clean up address to ensure it doesn't include the phone number
+        address = address
+          .replace(phone, "")
+          .trim()
+          .replace(/,+/g, ",")
+          .replace(/,$/, ""); // Remove phone from address if included
+
+        const response = { name, company, phone, email, address, website };
+        // console.log(response); // Uncomment to log the response
+        return JSON.stringify(response);
+      }
+
+      // For Azure OCR format - extract text from results
+      if (result.analyzeResult || result.status === "succeeded") {
+        const analyzeResult = result.analyzeResult;
+
+        if (
+          analyzeResult &&
+          analyzeResult.readResults &&
+          analyzeResult.readResults.length > 0
+        ) {
+          let extractedText = "";
+
+          // Extract text from all pages
+          for (const readResult of analyzeResult.readResults) {
+            if (readResult.lines && readResult.lines.length > 0) {
+              for (const line of readResult.lines) {
+                extractedText += line.text + "\n";
+              }
+            }
+          }
+
+          console.log("Extracted text:", extractedText);
+          return extractedText;
+        }
+      }
+    }
+
+    return "No text could be extracted from the image";
+  } catch (error) {
+    console.error("Error extracting text:", error);
+    return "Error extracting text from image";
+  }
+}
+
+/**
+ * Parses text to ContactInfo - includes both real and mock data
+ */
+export const parseTextToContactInfo = (text: string): ContactInfo => {
+  // This function would parse raw extracted text into structured contact info
+  // For now, we're just returning a mock object
+  return {
+    name: "Alex Johnson",
+    title: "Product Manager",
+    company: "Innovative Solutions Inc.",
+    email: "alex.johnson@innovative.com",
+    phone: "+1 (555) 123-4567",
+    website: "www.innovative.com",
+    address: "123 Tech Boulevard, San Francisco, CA 94107"
   };
 };
