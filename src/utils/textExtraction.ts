@@ -23,6 +23,7 @@ export const extractTextFromImage = async (
     isMockData: false,
     name: dataObject.name,
     title: dataObject.company,
+    company: dataObject.company,
     email: dataObject.email,
     phone: dataObject.phone,
     website: dataObject.website,
@@ -63,8 +64,10 @@ async function extractRealTextFromImage(image: string): Promise<string> {
       if (result.text) {
         // Regular expressions for matching
         const emailRegex = /\b\S+@\S+\.\S+\b/; // Regex to match email addresses
-        const phoneRegex =
-          /(?:\+?\d{1,3}[- ]?)?(?:\(?\d{1,4}?\)?[- ]?)?\d{1,4}[- ]?\d{1,4}[- ]?\d{1,4}/; // Regex to match phone numbers
+        const phoneRegex = /(?:\+65\s?\d{4}\s?\d{4})|(?:\d{4}\s?\d{4})/;
+
+        // const phoneRegex =
+        //   /(?:\+?\d{1,3}[- ]?)?(?:\(?\d{1,4}?\)?[- ]?)?\d{1,4}[- ]?\d{1,4}[- ]?\d{1,4}/; // Regex to match phone numbers
         const urlRegex =
           /(?<!@)\b(?:https?:\/\/|www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}\b/; // Regex to match URLs, ensuring they don't contain @
 
