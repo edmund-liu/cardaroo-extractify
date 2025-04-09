@@ -3,7 +3,7 @@ import { X, ScanText, Upload } from "lucide-react";
 import Loader from "./Loader";
 
 interface CameraComponentProps {
-  onCapture: (result: string) => void;
+  onCapture: (result: any) => void;
   onCancel: () => void;
 }
 
@@ -11,19 +11,14 @@ const API_KEY = import.meta.env.VITE_AZURE_API_KEY;
 const ENDPOINT = import.meta.env.VITE_AZURE_ENDPOINT;
 
 const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }) => {
-  // Refs for file input and hidden canvas
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Component state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * Handles file selection and updates state.
-   */
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -33,16 +28,10 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     }
   };
 
-  /**
-   * Opens the file upload dialog.
-   */
   const openFileUpload = (): void => {
     fileInputRef.current?.click();
   };
 
-  /**
-   * Converts the selected file to a Blob using FileReader.
-   */
   const getImageBlob = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -61,12 +50,10 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     });
   };
 
-  /**
-   * Submits the image blob to the Azure OCR API.
-   */
-  const submitImageToAzure = async (imageBlob: Blob): Promise<string> => {
-    const readUrl = `${ENDPOINT}/vision/v3.2/read/analyze`;
-    const response = await fetch(readUrl, {
+  const submitBusinessCardToAzure = async (imageBlob: Blob): Promise<string> => {
+    const url = `${ENDPOINT}/formrecognizer/documentModels/prebuilt-businessCard:analyze?api-version=2023-07-31`;
+
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
@@ -74,48 +61,67 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
       },
       body: imageBlob,
     });
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Azure API error: ${response.status} ${response.statusText} - ${errorText}`);
     }
+
     const operationLocation = response.headers.get("Operation-Location");
     if (!operationLocation) {
-      throw new Error("Operation location not found in response headers");
+      throw new Error("Operation-Location not found in headers");
     }
+
     return operationLocation;
   };
 
-  /**
-   * Polls the Azure API until the OCR process completes or fails.
-   */
-  const pollForAzureResult = async (operationLocation: string): Promise<any> => {
-    let pollAttempt = 0;
+  const pollForBusinessCardResult = async (operationLocation: string): Promise<any> => {
+    let attempts = 0;
     let result: any = { status: "notStarted" };
 
-    while (result.status !== "succeeded" && result.status !== "failed" && pollAttempt < 30) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const resultResponse = await fetch(operationLocation, {
-        method: "GET",
+    while (result.status !== "succeeded" && result.status !== "failed" && attempts < 30) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const res = await fetch(operationLocation, {
         headers: {
           "Ocp-Apim-Subscription-Key": API_KEY,
         },
       });
-      if (!resultResponse.ok) {
-        throw new Error(`Azure API error: ${resultResponse.status} ${resultResponse.statusText}`);
+      if (!res.ok) {
+        throw new Error(`Polling failed: ${res.statusText}`);
       }
-      result = await resultResponse.json();
-      pollAttempt++;
+      result = await res.json();
+      attempts++;
     }
 
     if (result.status === "failed") {
-      throw new Error("Azure OCR processing failed");
+      throw new Error("Business card recognition failed.");
     }
-    return result;
+
+    return result.analyzeResult.documents?.[0]?.fields || {};
   };
 
-  /**
-   * Processes the selected image using Azure OCR.
-   */
+  const extractBusinessCardFields = (fields: any) => {
+    const extractArray = (arr: any[] = []) =>
+      arr.map(item => ({
+        value: item?.content || "N/A",
+        confidence: item?.confidence?.toFixed(2) || "0.00",
+      }));
+  
+    return {
+      ContactNames: extractArray(fields.ContactNames?.valueArray),
+      CompanyNames: extractArray(fields.CompanyNames?.valueArray),
+      Departments: extractArray(fields.Departments?.valueArray),
+      JobTitles: extractArray(fields.JobTitles?.valueArray),
+      Emails: extractArray(fields.Emails?.valueArray),
+      Websites: extractArray(fields.Websites?.valueArray),
+      Addresses: extractArray(fields.Addresses?.valueArray),
+      MobilePhones: extractArray(fields.MobilePhones?.valueArray),
+      Faxes: extractArray(fields.Faxes?.valueArray),
+      WorkPhones: extractArray(fields.WorkPhones?.valueArray),
+      OtherPhones: extractArray(fields.OtherPhones?.valueArray),
+    };
+  };
+
   const processImage = async (): Promise<void> => {
     if (!imageFile) return;
     setIsProcessing(true);
@@ -123,22 +129,11 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
 
     try {
       const imageBlob = await getImageBlob(imageFile);
-      const operationLocation = await submitImageToAzure(imageBlob);
-      const result = await pollForAzureResult(operationLocation);
-
-      const textContent = result.analyzeResult.readResults
-        .flatMap((page: any) => page.lines)
-        .map((line: any) => line.text)
-        .join("\n");
-
-      const formattedResult = {
-        text: textContent,
-        rawResult: result.analyzeResult,
-        processedBy: "Microsoft Azure Computer Vision",
-        imageUrl: selectedImage,
-      };
-
-      onCapture(JSON.stringify(formattedResult));
+      const operationLocation = await submitBusinessCardToAzure(imageBlob);
+      const fields = await pollForBusinessCardResult(operationLocation);
+      const structuredResult = extractBusinessCardFields(fields);
+      console.log({structuredResult});
+      onCapture(structuredResult); 
     } catch (err: any) {
       console.error("Error processing image:", err);
       setError(err.message || "Unknown error occurred");
@@ -147,7 +142,6 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     }
   };
 
-  // Show a full-screen loader while processing
   if (isProcessing) {
     return (
       <div className="fixed inset-0 z-50 bg-white flex items-center justify-center">
@@ -158,14 +152,12 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-75 flex flex-col">
-      {/* Header Section */}
       <header className="p-6">
         <h1 className="text-2xl font-bold text-white text-center">
-          Image Text Extractor
+          Business Card Reader
         </h1>
       </header>
 
-      {/* Error Alert */}
       {error && (
         <div className="p-4 max-w-2xl mx-auto">
           <div className="bg-red-600 text-white p-3 rounded-lg">
@@ -174,7 +166,6 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
         </div>
       )}
 
-      {/* Main Content: Image Display or Upload Area */}
       <main className="flex-grow flex items-center justify-center p-4">
         {selectedImage ? (
           <div className="relative w-full max-w-2xl border border-white rounded-lg overflow-hidden">
@@ -197,8 +188,6 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
         )}
       </main>
 
-      {/* Hidden File Input */}
-
       <input
         type="file"
         accept="image/*"
@@ -208,8 +197,6 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
         className="hidden"
       />
 
-
-      {/* Footer: Action Buttons */}
       <footer className="p-6 flex justify-between items-center">
         <button
           onClick={onCancel}
@@ -236,7 +223,6 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
         <div className="w-12 h-12" />
       </footer>
 
-      {/* Hidden Canvas for potential image processing */}
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );
