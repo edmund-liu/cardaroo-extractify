@@ -24,20 +24,28 @@ const NameCard: React.FC<NameCardProps> = ({ contactInfo }) => {
     toast.success(`${label} copied to clipboard`);
   };
 
+  const splitName = (fullName: string) => {
+    const parts = fullName.trim().split(" ");
+    const lastName = parts[0]; // first word is surname
+    const firstName = parts.slice(1).join(" "); // rest is given name
+    return { firstName, lastName };
+  };
+  
   const saveContact = () => {
     // vCard template with dynamic content
-    const vCardData = `
-  BEGIN:VCARD
-  VERSION:3.0
-  FN:${name}
-  ORG:${company}
-  TEL:${phone}
-  EMAIL:${email}
-  ADR:${address}
-  URL:${website}
-  TITLE:${title}
-  END:VCARD
-    `;
+    const { firstName, lastName } = splitName(name);
+const vCardData = `
+BEGIN:VCARD
+VERSION:3.0
+FN:${name}
+N:${lastName};${firstName};;;
+ORG:${company}
+TEL;TYPE=cell:${phone}
+EMAIL:${email}
+ADR:${address}
+URL:${website}
+TITLE:${title}
+END:VCARD`;
 
     // Create a Blob from the vCard data
     const blob = new Blob([vCardData], { type: "text/vcard" });
