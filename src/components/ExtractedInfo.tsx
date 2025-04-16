@@ -1,7 +1,8 @@
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ContactInfo } from "@/types";
 import { Check, Pencil } from "lucide-react";
+import { sendCardDataToSalesforce } from "@/api/SaveCardData"; 
 
 interface ExtractedInfoProps {
   contactInfo: ContactInfo;
@@ -20,11 +21,44 @@ const ExtractedInfo: React.FC<ExtractedInfoProps> = ({ contactInfo, onUpdate }) 
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     onUpdate(formData);
     setEditing(false);
+
+    
+  const cardData = {
+    Name: formData.name,
+    Email: formData.email,
+    CompanyName: formData.company,
+    Address: formData.address,
+    Position: formData.title,
+    TelNumber: formData.phone
   };
+
+  try {
+    await sendCardDataToSalesforce(cardData);
+    // console.log("✅ Updated card sent to Salesforce.");
+  } catch (error) {
+    // console.error("❌ Error sending updated card to Salesforce:", error);
+  }
+  };
+
+  useEffect(() => {
+    // Convert your ContactInfo props to Salesforce format
+    const cardData = {
+      Name: contactInfo.name,
+      Email: contactInfo.email,
+      CompanyName: contactInfo.company,
+      Address: contactInfo.address,
+      Position: contactInfo.title,
+      TelNumber: contactInfo.phone
+    };
+
+    // Send data on mount
+    sendCardDataToSalesforce(cardData)
+
+  }, [contactInfo]);
 
   if (!editing) {
     return (
