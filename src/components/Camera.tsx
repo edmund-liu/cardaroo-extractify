@@ -32,21 +32,78 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     fileInputRef.current?.click();
   };
 
-  const getImageBlob = (file: File): Promise<Blob> => {
+  // const getImageBlob = (file: File): Promise<Blob> => {
+  //   return new Promise((resolve, reject) => {
+  //     const reader = new FileReader();
+  //     reader.onload = () => {
+  //       try {
+  //         const binaryStr = reader.result as ArrayBuffer;
+  //         const byteArray = new Uint8Array(binaryStr);
+  //         const imageBlob = new Blob([byteArray], { type: file.type });
+  //         resolve(imageBlob);
+  //       } catch (err) {
+  //         reject(err);
+  //       }
+  //     };
+  //     reader.onerror = () => reject(new Error("Failed to read the image file"));
+  //     reader.readAsArrayBuffer(file);
+  //   });
+  // };
+
+  const compressImage = async (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const binaryStr = reader.result as ArrayBuffer;
-          const byteArray = new Uint8Array(binaryStr);
-          const imageBlob = new Blob([byteArray], { type: file.type });
-          resolve(imageBlob);
-        } catch (err) {
-          reject(err);
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Calculate new dimensions while maintaining aspect ratio
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
         }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Convert to blob with reduced quality
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Failed to compress image'));
+            }
+          },
+          'image/jpeg',
+          0.7 // 70% quality
+        );
       };
-      reader.onerror = () => reject(new Error("Failed to read the image file"));
-      reader.readAsArrayBuffer(file);
+      
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
+      };
     });
   };
 
@@ -128,8 +185,9 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     setError(null);
 
     try {
-      const imageBlob = await getImageBlob(imageFile);
-      const operationLocation = await submitBusinessCardToAzure(imageBlob);
+      // Compress the image before sending
+      const compressedBlob = await compressImage(imageFile);
+      const operationLocation = await submitBusinessCardToAzure(compressedBlob);
       const fields = await pollForBusinessCardResult(operationLocation);
       const structuredResult = extractBusinessCardFields(fields);
       console.log({structuredResult});
