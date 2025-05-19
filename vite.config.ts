@@ -21,12 +21,12 @@ export default defineConfig(({ mode }) => ({
       : undefined, // Use undefined instead of false when not using HTTPS
       proxy: {
         '/salesforce-token': {
-          target: 'https://test.salesforce.com',
+          target: 'https://login.salesforce.com',
           changeOrigin: true,
           rewrite: path => path.replace(/^\/salesforce-token/, '/services/oauth2/token'),
         },
         '/businesscard': {
-          target: 'https://eservices-isca--uat.sandbox.my.site.com',
+          target: 'https://eservices-isca.org.sg',
           changeOrigin: true,
           rewrite: path => path.replace(/^\/businesscard/, '/services/apexrest/mobileAPI/v1/businesscard'),
         },

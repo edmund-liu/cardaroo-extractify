@@ -8,6 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+ssl_certificate
+https-server/ssl_certificate
 dist
 dist-ssr
 *.local
