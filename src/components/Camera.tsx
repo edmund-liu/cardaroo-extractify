@@ -27,9 +27,12 @@ const CameraComponent: React.FC<CameraComponentProps> = ({onCapture,onCancel,
     if (isCameraMode) {
       startCamera();
     }
+    
+    // Cleanup function
     return () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        setStream(null);
       }
     };
   }, [isCameraMode]);
@@ -261,6 +264,15 @@ const CameraComponent: React.FC<CameraComponentProps> = ({onCapture,onCancel,
       const operationLocation = await submitBusinessCardToAzure(imageBlob);
       const fields = await pollForBusinessCardResult(operationLocation);
       const structuredResult = extractBusinessCardFields(fields);
+      console.log({ structuredResult });
+      
+      // Stop camera if in camera mode
+      if (isCameraMode && stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
+        setIsCameraMode(false);
+      }
+      
       onCapture(structuredResult);
     } catch (err: any) {
       console.error("Error processing image:", err);
