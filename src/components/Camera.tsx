@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import { X, ScanText, Upload } from "lucide-react";
+import React, { useRef, useState, useEffect } from "react";
+import { X, ScanText, Upload, Camera } from "lucide-react";
 import Loader from "./Loader";
 
 interface CameraComponentProps {
@@ -10,14 +10,42 @@ interface CameraComponentProps {
 const API_KEY = import.meta.env.VITE_AZURE_API_KEY;
 const ENDPOINT = import.meta.env.VITE_AZURE_ENDPOINT;
 
-const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }) => {
+const CameraComponent: React.FC<CameraComponentProps> = ({onCapture,onCancel,
+}) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [isCameraMode, setIsCameraMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isCameraMode) {
+      startCamera();
+    }
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isCameraMode]);
+
+  const startCamera = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (err) {
+      setError("Failed to access camera. Please ensure camera permissions are granted.");
+      console.error("Camera access error:", err);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     if (e.target.files && e.target.files[0]) {
@@ -54,16 +82,16 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.src = URL.createObjectURL(file);
-      
+
       img.onload = () => {
-        const canvas = document.createElement('canvas');
+        const canvas = document.createElement("canvas");
         let width = img.width;
         let height = img.height;
-        
+
         // Calculate new dimensions while maintaining aspect ratio
         const MAX_WIDTH = 1200;
         const MAX_HEIGHT = 1200;
-        
+
         if (width > height) {
           if (width > MAX_WIDTH) {
             height = Math.round((height * MAX_WIDTH) / width);
@@ -75,39 +103,41 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
             height = MAX_HEIGHT;
           }
         }
-        
+
         canvas.width = width;
         canvas.height = height;
-        
-        const ctx = canvas.getContext('2d');
+
+        const ctx = canvas.getContext("2d");
         if (!ctx) {
-          reject(new Error('Could not get canvas context'));
+          reject(new Error("Could not get canvas context"));
           return;
         }
-        
+
         ctx.drawImage(img, 0, 0, width, height);
-        
+
         // Convert to blob with reduced quality
         canvas.toBlob(
           (blob) => {
             if (blob) {
               resolve(blob);
             } else {
-              reject(new Error('Failed to compress image'));
+              reject(new Error("Failed to compress image"));
             }
           },
-          'image/jpeg',
+          "image/jpeg",
           0.7 // 70% quality
         );
       };
-      
+
       img.onerror = () => {
-        reject(new Error('Failed to load image'));
+        reject(new Error("Failed to load image"));
       };
     });
   };
 
-  const submitBusinessCardToAzure = async (imageBlob: Blob): Promise<string> => {
+  const submitBusinessCardToAzure = async (
+    imageBlob: Blob
+  ): Promise<string> => {
     const url = `${ENDPOINT}/formrecognizer/documentModels/prebuilt-businessCard:analyze?api-version=2023-07-31`;
 
     const response = await fetch(url, {
@@ -121,7 +151,9 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Azure API error: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(
+        `Azure API error: ${response.status} ${response.statusText} - ${errorText}`
+      );
     }
 
     const operationLocation = response.headers.get("Operation-Location");
@@ -132,12 +164,18 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     return operationLocation;
   };
 
-  const pollForBusinessCardResult = async (operationLocation: string): Promise<any> => {
+  const pollForBusinessCardResult = async (
+    operationLocation: string
+  ): Promise<any> => {
     let attempts = 0;
     let result: any = { status: "notStarted" };
 
-    while (result.status !== "succeeded" && result.status !== "failed" && attempts < 30) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+    while (
+      result.status !== "succeeded" &&
+      result.status !== "failed" &&
+      attempts < 30
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       const res = await fetch(operationLocation, {
         headers: {
           "Ocp-Apim-Subscription-Key": API_KEY,
@@ -159,11 +197,11 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
 
   const extractBusinessCardFields = (fields: any) => {
     const extractArray = (arr: any[] = []) =>
-      arr.map(item => ({
+      arr.map((item) => ({
         value: item?.content || "N/A",
         confidence: item?.confidence?.toFixed(2) || "0.00",
       }));
-  
+
     return {
       ContactNames: extractArray(fields.ContactNames?.valueArray),
       CompanyNames: extractArray(fields.CompanyNames?.valueArray),
@@ -179,19 +217,51 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
     };
   };
 
+  const captureImage = async (): Promise<Blob> => {
+    if (!videoRef.current || !canvasRef.current) {
+      throw new Error("Camera or canvas not initialized");
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error("Could not get canvas context");
+
+    ctx.drawImage(video, 0, 0);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Failed to capture image"));
+        }
+      }, 'image/jpeg');
+    });
+  };
+
   const processImage = async (): Promise<void> => {
-    if (!imageFile) return;
     setIsProcessing(true);
     setError(null);
 
     try {
-      // Compress the image before sending
-      const compressedBlob = await compressImage(imageFile);
-      const operationLocation = await submitBusinessCardToAzure(compressedBlob);
+      let imageBlob: Blob;
+      
+      if (isCameraMode) {
+        // Capture from camera
+        imageBlob = await captureImage();
+      } else if (imageFile) {
+        // Use uploaded file
+        imageBlob = await compressImage(imageFile);
+      } else {
+        throw new Error("No image source available");
+      }
+
+      const operationLocation = await submitBusinessCardToAzure(imageBlob);
       const fields = await pollForBusinessCardResult(operationLocation);
       const structuredResult = extractBusinessCardFields(fields);
-      console.log({structuredResult});
-      onCapture(structuredResult); 
+      onCapture(structuredResult);
     } catch (err: any) {
       console.error("Error processing image:", err);
       setError(err.message || "Unknown error occurred");
@@ -225,7 +295,16 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
       )}
 
       <main className="flex-grow flex items-center justify-center p-4">
-        {selectedImage ? (
+        {isCameraMode ? (
+          <div className="relative w-full max-w-2xl border border-white rounded-lg overflow-hidden">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full max-h-[60vh] object-contain bg-gray-800"
+            />
+          </div>
+        ) : selectedImage ? (
           <div className="relative w-full max-w-2xl border border-white rounded-lg overflow-hidden">
             <img
               src={selectedImage}
@@ -263,7 +342,7 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
           <X className="w-6 h-6 text-white" />
         </button>
 
-        {selectedImage ? (
+        {isCameraMode || selectedImage ? (
           <button
             onClick={processImage}
             className="w-20 h-20 rounded-full flex items-center justify-center bg-white hover:bg-gray-100 transition"
@@ -272,10 +351,10 @@ const CameraComponent: React.FC<CameraComponentProps> = ({ onCapture, onCancel }
           </button>
         ) : (
           <button
-            onClick={openFileUpload}
+            onClick={() => setIsCameraMode(true)}
             className="w-20 h-20 rounded-full flex items-center justify-center bg-white hover:bg-gray-100 transition"
           >
-            <Upload className="w-8 h-8 text-black" />
+            <Camera className="w-8 h-8 text-black" />
           </button>
         )}
         <div className="w-12 h-12" />
